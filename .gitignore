@@ -1,0 +1,78 @@
+############################
+# GLOBAL / OS
+############################
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.log
+
+############################
+# PYTHON (ALL SERVICES)
+############################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.env
+.venv/
+venv/
+pip-wheel-metadata/
+
+############################
+# BACKEND SERVICE
+############################
+backend/__pycache__/
+backend/*.backup*
+backend/*.bak
+
+############################
+# SPEECH / NEMO / LLAMA SERVICES
+############################
+speech-service/__pycache__/
+nemo-service/__pycache__/
+llama-service/__pycache__/
+
+############################
+# LARGE MODELS / ML ARTIFACTS
+############################
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+
+# LLaMA model directory (DO NOT PUSH)
+llama-service/Meta-Llama-3-8B-Instruct/
+
+############################
+# NODE / FRONTEND
+############################
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.cache
+
+############################
+# DOCKER
+############################
+**/.dockerignore
+docker-data/
+volumes/
+*.tar
+
+############################
+# TEST / LOCAL FILES
+############################
+testmic..py
+*.wav
+*.mp3
+
+############################
+# IDE
+############################
+.vscode/
+.idea/

@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  speech-service:
+    build:
+      context: ./speech-service
+      dockerfile: Dockerfile
+    container_name: speech-unified
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ./speech-service:/app
+      - /home/admin/.cache/whisper:/root/.cache/whisper:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  llama-service:
+    build:
+      context: ./llama-service
+      dockerfile: Dockerfile
+    container_name: llama-summarizer
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ./llama-service:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+
+  nemo-service:
+    build:
+      context: ./nemo-service
+      dockerfile: Dockerfile
+    container_name: nemo-diarizer
+    ports:
+      - "8003:8003"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ./nemo-service:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-gateway
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./backend:/app
+    # FIXED: Audio device access for live recording
+    devices:
+      - /dev/snd:/dev/snd
+    privileged: true
+    # ADDED: Audio environment variables
+    environment:
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+      - ALSA_CARD=1
+    restart: unless-stopped
+    depends_on:
+      speech-service:
+        condition: service_healthy
+      llama-service:
+        condition: service_healthy
+      nemo-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ai-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8002
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy

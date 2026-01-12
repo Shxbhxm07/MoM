@@ -1,0 +1,27 @@
+/* index.css – global reset & root layout */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: #f5f7fb; /* soft neutral background */
+}
+
+/* VERY IMPORTANT: no max-width constraint here */
+#root {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}

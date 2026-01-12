@@ -1,0 +1,683 @@
+import { useState, useEffect } from "react";
+import axios from "axios";
+import {
+  FiMic,
+  FiUploadCloud,
+  FiChevronLeft,
+  FiChevronRight,
+  FiMoon,
+  FiSun,
+  FiFileText,
+  FiFile,
+  FiDownload
+} from "react-icons/fi";
+import "./App.css";
+import logo from "./assets/logo.svg";
+import logoWhite from "./assets/logo-white.svg";
+
+const BACKEND_URL = "http://localhost:8000";
+
+const formatDuration = (sec) => {
+  const s = Math.floor(sec || 0);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+};
+
+function App() {
+  const [activeTab, setActiveTab] = useState("live"); // "live" | "file"
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem("theme") === "dark";
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.body.classList.add("dark-mode");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.body.classList.remove("dark-mode");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
+
+  // live session state from backend
+  const [liveStatus, setLiveStatus] = useState({
+    is_recording: false,
+    duration: 0,
+    word_count: 0,
+    total_segments: 0,
+    latest_text: "",
+    transcript: "",
+    audio_level: 0,
+  });
+
+  // Poll /live/status while on Live tab
+  useEffect(() => {
+    if (activeTab !== "live") return;
+    const id = setInterval(async () => {
+      try {
+        const res = await axios.get(`${BACKEND_URL}/live/status`);
+        setLiveStatus(res.data);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [activeTab]);
+
+  // Live controls
+  const handleLiveStart = async () => {
+    try {
+      await axios.post(`${BACKEND_URL}/live/start`);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+  const handleLiveStop = async () => {
+    try {
+      await axios.post(`${BACKEND_URL}/live/stop`);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+  const handleLiveReset = async () => {
+    try {
+      await axios.post(`${BACKEND_URL}/live/reset`);
+      setLiveStatus((s) => ({
+        ...s,
+        duration: 0,
+        word_count: 0,
+        total_segments: 0,
+        latest_text: "",
+        transcript: "",
+        audio_level: 0,
+      }));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+  const handleLiveDiarize = async () => {
+    try {
+      const res = await axios.post(`${BACKEND_URL}/live/diarize`);
+      // Replace transcript with diarized formatted text
+      setLiveStatus((s) => ({
+        ...s,
+        transcript: res.data.formatted_text,
+        word_count: res.data.full_text.split(/\s+/).filter(Boolean).length,
+      }));
+    } catch (e) {
+      console.error(e);
+      alert(
+        e.response?.data?.detail || "Diarization failed. Check backend logs."
+      );
+    }
+  };
+
+  return (
+    <div className={`app-shell ${darkMode ? "dark" : ""}`}>
+      {/* SIDEBAR */}
+      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
+        <div className="sidebar-header">
+          <div className="logo-container">
+            <img src={darkMode ? logoWhite : logo} alt="AngelBot Logo" style={{ height: '32px', width: 'auto' }} />
+          </div>
+          {!sidebarCollapsed && (
+            <div className="logo-text">
+              <div className="logo-title">ANGELBOT.AI</div>
+              <div className="logo-subtitle">Transcription Studio</div>
+            </div>
+          )}
+          <button
+            className="sidebar-toggle"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+          >
+            {sidebarCollapsed ? <FiChevronRight /> : <FiChevronLeft />}
+          </button>
+        </div>
+
+        <nav className="sidebar-nav">
+          <button
+            className={`nav-item ${activeTab === "live" ? "active" : ""}`}
+            onClick={() => setActiveTab("live")}
+          >
+            <FiMic className="nav-icon" />
+            {!sidebarCollapsed && <span>Live Session</span>}
+          </button>
+          <button
+            className={`nav-item ${activeTab === "file" ? "active" : ""}`}
+            onClick={() => setActiveTab("file")}
+          >
+            <FiUploadCloud className="nav-icon" />
+            {!sidebarCollapsed && <span>File Transcription</span>}
+          </button>
+        </nav>
+
+        <div style={{ marginTop: 'auto', padding: '16px' }}>
+          <button
+            className="nav-item"
+            onClick={() => setDarkMode(!darkMode)}
+            style={{ justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}
+          >
+            {darkMode ? <FiSun className="nav-icon" /> : <FiMoon className="nav-icon" />}
+            {!sidebarCollapsed && <span>{darkMode ? "Light Mode" : "Dark Mode"}</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main className="main">
+        <div style={{ display: activeTab === "live" ? "block" : "none" }}>
+          <LiveSession
+            status={liveStatus}
+            onStart={handleLiveStart}
+            onStop={handleLiveStop}
+            onReset={handleLiveReset}
+            onDiarize={handleLiveDiarize}
+          />
+        </div>
+
+        <div style={{ display: activeTab === "file" ? "block" : "none" }}>
+          <FileTranscription />
+        </div>
+
+        <footer className="footer">
+          © 2026 AngelBot.AI · Faster‑Whisper · FastAPI · React
+        </footer>
+      </main>
+    </div >
+  );
+}
+
+/* ===== LIVE SESSION PAGE ===== */
+function LiveSession({ status, onStart, onStop, onReset, onDiarize }) {
+  const {
+    is_recording,
+    duration,
+    word_count,
+    total_segments,
+    transcript,
+    audio_level,
+  } = status;
+
+  const levelPct = Math.min(100, Math.round(audio_level * 100)); // your backend returns float 0–1
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <h1>Live Session</h1>
+        <p>
+          Capture real‑time speech from your backend server microphone with live
+          transcription and optional diarization.
+        </p>
+      </header>
+
+      {/* Controls + Audio level */}
+      <section className="card controls-card">
+        <div className="controls-row">
+          <button
+            className="btn btn-primary"
+            onClick={onStart}
+            disabled={is_recording}
+          >
+            Start
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={onStop}
+            disabled={!is_recording}
+          >
+            Stop
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={onDiarize}
+            disabled={is_recording}
+          >
+            Diarize
+          </button>
+          <button className="btn btn-ghost" onClick={onReset} disabled={is_recording}>
+            Reset
+          </button>
+          <span className={`recording-pill ${is_recording ? "on" : "off"}`}>
+            {is_recording ? "Recording…" : "Idle"}
+          </span>
+        </div>
+
+
+        <div className="audio-row">
+          <span className="audio-label">Audio Level</span>
+          <div className="audio-bar">
+            <div
+              className="audio-bar-fill"
+              style={{
+                width: `${(audio_level * 100).toFixed(2)}%`,
+                background: audio_level > 0.8
+                  ? 'linear-gradient(90deg, #e74c3c, #c0392b)'
+                  : audio_level > 0.5
+                    ? 'linear-gradient(90deg, #f39c12, #e67e22)'
+                    : 'linear-gradient(90deg, #27ae60, #2ecc71)'
+              }}
+            />
+            <span className="audio-bar-text">{(audio_level * 100).toFixed(2)}%</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Overview */}
+      <section className="card overview-card">
+        <h2 className="section-title">Live Session Overview</h2>
+        <div className="overview-grid">
+          <div className="overview-item">
+            <span className="overview-label">Duration</span>
+            <span className="overview-value">{formatDuration(duration)}</span>
+          </div>
+          <div className="overview-item">
+            <span className="overview-label">Words</span>
+            <span className="overview-value">{word_count}</span>
+          </div>
+          <div className="overview-item">
+            <span className="overview-label">Segments</span>
+            <span className="overview-value">{total_segments}</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Transcript */}
+      <section className="card transcript-card">
+        <div className="transcript-header">
+          <h2 className="section-title">Live Transcript</h2>
+          <span className="transcript-status">
+            {transcript ? "" : "No transcript yet"}
+          </span>
+        </div>
+        <div className="transcript-box">
+          {transcript || (
+            <span className="transcript-placeholder">
+              Click <strong>Start</strong> to begin recording from the server
+              microphone. As audio is captured, the transcript will appear
+              here.
+            </span>
+          )}
+        </div>
+
+        {/* Export Buttons */}
+        {transcript && !is_recording && (
+          <div className="export-row" style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+            <button className="export-btn" onClick={() => {
+              const blob = new Blob([transcript], { type: "text/plain" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `live_session_${Date.now()}.txt`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            }}>
+              Save as TXT
+            </button>
+            <button className="export-btn" onClick={() => {
+              const md = `# Live Session Transcript\n\n${transcript}`;
+              const blob = new Blob([md], { type: "text/markdown" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `live_session_${Date.now()}.md`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            }}>
+              Save as Markdown
+            </button>
+            <button className="export-btn" onClick={async () => {
+              try {
+                const res = await axios.post(
+                  `${BACKEND_URL}/export/pdf`,
+                  { content: transcript, title: "Live Session Transcript" },
+                  { responseType: "blob" }
+                );
+                const url = window.URL.createObjectURL(res.data);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `live_session_${Date.now()}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+              } catch (e) {
+                console.error("PDF export failed", e);
+                alert("PDF generation failed");
+              }
+            }}>
+              Save as PDF
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* ===== FILE TRANSCRIPTION TAB (simple placeholder, you can reuse your earlier code) ===== */
+function FileTranscription() {
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);      // 0–100
+  const [logs, setLogs] = useState([]);            // plain JS array
+  const [formattedText, setFormattedText] = useState("");
+  const [fullText, setFullText] = useState("");
+  const [error, setError] = useState("");
+  const [abortController, setAbortController] = useState(null);
+
+  // Enhanced progress animation: slows down as it approaches 100%, never stops
+  useEffect(() => {
+    if (!loading) {
+      // Don't reset to 0 immediately if we just finished (so users see the 100%)
+      return;
+    }
+
+    setProgress(0);
+    let currentProgress = 0;
+    const startTime = Date.now();
+
+    // We update every 300-600ms for a more "organic" feel
+    const updateProgress = () => {
+      if (!loading) return;
+
+      // Asymptotic logic: always add a fraction of the remaining space to 100%
+      // This mathematically ensures it never hits 100% (or even 99.9%)
+      const remaining = 99.9 - currentProgress;
+      const factor = currentProgress < 80 ? 0.08 : 0.02; // Slower near the end
+      const increment = remaining * (Math.random() * factor + 0.01);
+
+      currentProgress += increment;
+      setProgress(Math.min(99.9, currentProgress)); // Safety clamp
+
+      // Schedule next update with varied delay
+      const nextDelay = 400 + Math.random() * 600;
+      timeoutRef.current = setTimeout(updateProgress, nextDelay);
+    };
+
+    const timeoutRef = { current: setTimeout(updateProgress, 500) };
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [loading]);
+
+  const appendLog = (msg) => {
+    const stamp = new Date().toLocaleTimeString();
+    setLogs((prev) =>
+      [...prev, `[${stamp}] ${msg}`].slice(-3) // keep last 3
+    );
+  };
+
+  const handleFileChange = (e) => {
+    const f = e.target.files[0] || null;
+    setFile(f);
+    setError("");
+    setFormattedText("");
+    setFullText("");
+    setLogs([]);
+    if (f) appendLog(`Selected file: ${f.name}`);
+  };
+
+  const handleTranscribe = async (withDiarization = false) => {
+    if (!file) {
+      setError("Please select an audio file first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setLogs([]);
+    appendLog("Uploading file to server…");
+
+    const controller = new AbortController();
+    setAbortController(controller);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const endpoint = withDiarization
+        ? "/transcribe-file-diarize"
+        : "/transcribe-file";
+
+      appendLog("Starting transcription job…");
+      const res = await axios.post(`${BACKEND_URL}${endpoint}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        signal: controller.signal,
+      });
+
+      appendLog("Transcription completed.");
+      setFormattedText(res.data.formatted_text);
+      setFullText(res.data.full_text);
+      setProgress(100);
+    } catch (e) {
+      if (axios.isCancel(e)) {
+        appendLog("Transcription stopped by user.");
+      } else {
+        console.error(e);
+        setError(e.response?.data?.detail || "Transcription failed");
+        appendLog("Error during transcription.");
+      }
+    } finally {
+      setLoading(false);
+      setAbortController(null);
+      setTimeout(() => setProgress(0), 800);
+    }
+  };
+
+  const handleStop = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      setLoading(false);
+    }
+  };
+
+  const handleReset = () => {
+    handleStop();
+    setFile(null);
+    setLoading(false);
+    setProgress(0);
+    setLogs([]);
+    setFormattedText("");
+    setFullText("");
+    setError("");
+    // Reset file input if possible
+    const fileInput = document.querySelector('input[type="file"]');
+    if (fileInput) fileInput.value = "";
+  };
+
+  // ---------- export helpers ----------
+  const downloadFile = (content, fileName, mimeType) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTxt = () => {
+    const text = formattedText || fullText;
+    if (!text) return;
+    downloadFile(text, `transcript_${Date.now()}.txt`, "text/plain");
+  };
+
+  const handleDownloadMd = () => {
+    const text = formattedText || fullText;
+    if (!text) return;
+    const md = `# Transcript\n\n${text}`;
+    downloadFile(md, `transcript_${Date.now()}.md`, "text/markdown");
+  };
+
+  const handleDownloadPdf = async () => {
+    const text = formattedText || fullText;
+    if (!text) return;
+    try {
+      const res = await axios.post(
+        `${BACKEND_URL}/export/pdf`,
+        { content: text, title: "AngelBot.AI Transcription" },
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `transcript_${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      setError("PDF export failed");
+    }
+  };
+
+  return (
+    <div className="page file-page">
+      <div className="file-inner">
+        <header className="page-header">
+          <h1>File Transcription</h1>
+          <p>Upload an audio file for offline transcription and diarization.</p>
+        </header>
+
+        {/* 1. Choose file card */}
+        <section className="card">
+          <label className="file-drop">
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={handleFileChange}
+            />
+            <div className="file-drop-title">
+              {file ? "Change audio file" : "Choose audio file"}
+            </div>
+            <div className="file-drop-sub">
+              Supported formats: MP3, WAV, M4A, FLAC, OGG
+            </div>
+            {file && (
+              <div className="file-selected-name">{file.name}</div>
+            )}
+          </label>
+        </section>
+
+        {/* 2. Loader card */}
+        <section className="card">
+          <h2 className="section-title">Processing</h2>
+          <div className="file-progress-container">
+            <div className="progress-bar">
+              <div
+                className="progress-bar-fill"
+                style={{
+                  width: `${Math.min(100, progress)}%`,
+                  background: progress >= 100
+                    ? 'linear-gradient(90deg, #27ae60, #2ecc71)'
+                    : progress > 50
+                      ? 'linear-gradient(90deg, #3498db, #2980b9)'
+                      : 'linear-gradient(90deg, #9b59b6, #8e44ad)'
+                }}
+              />
+              <span className="progress-bar-text">
+                {progress.toFixed(2)}%
+              </span>
+            </div>
+            <div className="file-logs">
+              {logs.map((line, idx) => (
+                <div className="file-log-line" key={idx}>
+                  {line}
+                </div>
+              ))}
+              {!logs.length && (
+                <div className="file-log-line file-log-muted">
+                  Waiting for a transcription job…
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* 3. Buttons card */}
+        {/* 3. Buttons card */}
+        <section className="card">
+          <div className="file-buttons-row">
+            {!loading ? (
+              <>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleTranscribe(false)}
+                  disabled={!file}
+                >
+                  Transcribe
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleTranscribe(true)}
+                  disabled={!file}
+                >
+                  Transcribe + Diarize
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn btn-secondary"
+                onClick={handleStop}
+                style={{ borderColor: "#e74c3c", color: "#e74c3c" }}
+              >
+                Stop Transcription
+              </button>
+            )}
+            <button
+              className="btn btn-ghost"
+              onClick={handleReset}
+              disabled={loading || (!file && !formattedText)}
+            >
+              Reset
+            </button>
+          </div>
+          {error && <div className="error-text">{error}</div>}
+        </section>
+
+        {/* 4. Transcript + export card */}
+        <section className="card transcript-card file-transcript-card">
+          <div className="transcript-header">
+            <h2 className="section-title">Transcript</h2>
+          </div>
+          <div className="transcript-box">
+            {formattedText ? (
+              <pre>{formattedText}</pre>
+            ) : (
+              <span className="transcript-placeholder">
+                Transcript will appear here once processing is complete.
+              </span>
+            )}
+          </div>
+
+          {formattedText && (
+            <div className="export-row">
+              <button className="export-btn" onClick={handleDownloadTxt}>
+                Save as TXT
+              </button>
+              <button className="export-btn" onClick={handleDownloadMd}>
+                Save as Markdown
+              </button>
+              <button className="export-btn" onClick={handleDownloadPdf}>
+                Save as PDF
+              </button>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+export default App;
