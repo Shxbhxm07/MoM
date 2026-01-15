@@ -1,206 +1,15 @@
-# from fastapi import FastAPI, HTTPException
-# from fastapi.middleware.cors import CORSMiddleware
-# from pydantic import BaseModel
-# from transformers import AutoTokenizer, AutoModelForCausalLM
-# import torch
-# import logging
-# import os
-
-# logging.basicConfig(level=logging.INFO)
-# logger = logging.getLogger(__name__)
-
-# app = FastAPI(title="Llama 3 Summarization Service", version="1.0.0")
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# tokenizer = None
-# model = None
-
-# # Maximum safe input tokens (leave room for prompt + output)
-# MAX_INPUT_TOKENS = 6000  # Conservative limit for 8K context window
-
-# class SummarizeRequest(BaseModel):
-#     text: str
-#     max_length: int = 300
-#     temperature: float = 0.7
-
-# def chunk_text(text: str, max_tokens: int) -> list:
-#     """Split text into chunks that fit within token limit"""
-#     # Rough estimate: 1 token ≈ 4 characters
-#     max_chars = max_tokens * 4
-    
-#     # Split by sentences for better coherence
-#     sentences = text.split('. ')
-    
-#     chunks = []
-#     current_chunk = []
-#     current_length = 0
-    
-#     for sentence in sentences:
-#         sentence_length = len(sentence)
-        
-#         if current_length + sentence_length > max_chars:
-#             if current_chunk:
-#                 chunks.append('. '.join(current_chunk) + '.')
-#             current_chunk = [sentence]
-#             current_length = sentence_length
-#         else:
-#             current_chunk.append(sentence)
-#             current_length += sentence_length
-    
-#     if current_chunk:
-#         chunks.append('. '.join(current_chunk) + '.')
-    
-#     return chunks
-
-# @app.on_event("startup")
-# async def load_model():
-#     global tokenizer, model
-#     try:
-#         device = "cuda" if torch.cuda.is_available() else "cpu"
-        
-#         if torch.cuda.is_available():
-#             logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-#             logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
-        
-#         model_path = "/app/Meta-Llama-3-8B-Instruct"
-#         logger.info(f"Loading Llama 3 8B from: {model_path}")
-        
-#         tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-#         model = AutoModelForCausalLM.from_pretrained(
-#             model_path,
-#             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-#             device_map="auto",
-#             local_files_only=True
-#         )
-        
-#         logger.info(f"✓ Llama 3 loaded on {device}")
-#         logger.info("🚀 Summarization service ready!")
-        
-#     except Exception as e:
-#         logger.error(f"Error loading model: {e}")
-
-# @app.get("/")
-# async def root():
-#     return {
-#         "service": "Llama 3 Summarization",
-#         "model": "Meta-Llama-3-8B-Instruct",
-#         "endpoints": {"/health": "Health check", "/summarize": "Summarize text (POST)"}
-#     }
-
-# @app.get("/health")
-# async def health():
-#     return {
-#         "status": "healthy" if model else "loading",
-#         "model_loaded": model is not None,
-#         "gpu_available": torch.cuda.is_available()
-#     }
-
-# def generate_summary_for_chunk(chunk: str, max_length: int, temperature: float) -> str:
-#     """Generate summary for a single chunk"""
-#     messages = [
-#         {"role": "system", "content": "You are a helpful assistant. Provide only the summary."},
-#         {"role": "user", "content": f"Summarize this in 2-3 sentences:\n\n{chunk}"}
-#     ]
-    
-#     prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-#     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=MAX_INPUT_TOKENS).to(model.device)
-#     input_length = inputs.input_ids.shape[1]
-    
-#     with torch.no_grad():
-#         outputs = model.generate(
-#             **inputs,
-#             max_new_tokens=max_length,
-#             temperature=temperature,
-#             do_sample=True,
-#             top_p=0.9,
-#             pad_token_id=tokenizer.eos_token_id,
-#             eos_token_id=tokenizer.eos_token_id
-#         )
-    
-#     generated_ids = outputs[0][input_length:]
-#     summary = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
-    
-#     # Cleanup
-#     summary = summary.replace("<|eot_id|>", "").strip()
-#     if "assistant" in summary.lower():
-#         summary = summary.split("assistant")[-1].strip()
-    
-#     return summary
-
-# @app.post("/summarize")
-# async def summarize(request: SummarizeRequest):
-#     """Summarize text with automatic chunking for long inputs"""
-#     if not model or not tokenizer:
-#         raise HTTPException(503, "Model not loaded")
-    
-#     try:
-#         text_length = len(request.text)
-#         logger.info(f"Summarizing text ({text_length} chars)")
-        
-#         # Estimate tokens (rough: 4 chars = 1 token)
-#         estimated_tokens = text_length // 4
-        
-#         # If text is short enough, process directly
-#         if estimated_tokens < MAX_INPUT_TOKENS:
-#             logger.info("Processing in single pass")
-#             summary = generate_summary_for_chunk(request.text, request.max_length, request.temperature)
-#         else:
-#             # Chunk and summarize
-#             logger.info(f"Text too long ({estimated_tokens} tokens). Chunking...")
-#             chunks = chunk_text(request.text, MAX_INPUT_TOKENS)
-#             logger.info(f"Split into {len(chunks)} chunks")
-            
-#             # Summarize each chunk
-#             chunk_summaries = []
-#             for i, chunk in enumerate(chunks):
-#                 logger.info(f"Summarizing chunk {i+1}/{len(chunks)}")
-#                 chunk_summary = generate_summary_for_chunk(chunk, 150, request.temperature)
-#                 chunk_summaries.append(chunk_summary)
-            
-#             # Combine chunk summaries
-#             combined_summary = " ".join(chunk_summaries)
-            
-#             # If combined summary is still long, summarize it again
-#             if len(combined_summary) > 2000:
-#                 logger.info("Final summary pass...")
-#                 summary = generate_summary_for_chunk(combined_summary, request.max_length, request.temperature)
-#             else:
-#                 summary = combined_summary
-        
-#         logger.info(f"✓ Summary generated ({len(summary)} chars)")
-        
-#         return {
-#             "summary": summary,
-#             "original_length": text_length,
-#             "summary_length": len(summary),
-#             "compression_ratio": f"{len(summary) / text_length * 100:.1f}%"
-#         }
-        
-#     except Exception as e:
-#         logger.error(f"Summarization error: {e}")
-#         import traceback
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(500, str(e))
-
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import logging
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Llama 3 Meeting Intelligence Service", version="2.0.0")
+app = FastAPI(title="Llama 3 Meeting Intelligence Service", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -213,97 +22,160 @@ app.add_middleware(
 tokenizer = None
 model = None
 
-# Conservative limit for Llama-3 8B (8K context)
 MAX_INPUT_TOKENS = 6000
+CHUNK_SIZE_CHARS = 10000  # Larger chunks = fewer synthesis steps
+MAX_NEW_TOKENS_PER_CHUNK = 2000
+MAX_NEW_TOKENS_SYNTHESIS = 4000  # DOUBLED for synthesis to prevent cutoff
 
 # =========================
-# UNIVERSAL MEETING PROMPT
+# COMPREHENSIVE MOM PROMPT
 # =========================
 MEETING_ANALYSIS_SYSTEM_PROMPT = """
-You are Docutalk, an AI language model developed by Appolo Computers.
-You are a specialized assistant for analyzing and structuring information
-from audio transcriptions of meetings, discussions, or conversations.
+You are Docutalk - an AI that creates detailed meeting documentation.
 
-The input text is a transcription of spoken audio.
-It may be a complete transcription or a partial segment of a longer recording.
+Generate a comprehensive Minutes of Meeting document.
 
-The transcription may contain informal language, repetitions, disfluencies,
-incomplete sentences, multiple speakers, or mid-sentence starts and endings.
+FORMAT (follow exactly):
 
-Your task is to analyze ONLY the provided transcription and produce a
-clear, structured output with the following sections:
+================================================================================
+MoM | [Meeting Name]
+Date: [DD MMM YYYY]
+Time: [Time or "Not specified"]
+================================================================================
 
-1. Purpose of the Discussion
-   - State the main reason for the discussion.
-   - If not explicitly stated, infer conservatively.
-   - If unclear, write: "Not clearly stated in this segment."
+AGENDA
+  • [Each agenda item with details]
 
-2. Key Discussion Points
-   - Summarize the main topics discussed.
-   - Preserve logical or chronological flow.
-   - Exclude filler words and transcription artifacts.
+________________________________________________________________________________
 
-3. Decisions Made
-   - List ONLY decisions that are explicitly stated or clearly agreed upon.
-   - Do NOT infer decisions from personal opinions or goals.
-   - If none are present, write: "No explicit decisions mentioned."
+ATTENDEES
 
-4. Action Items
-   - List ONLY tasks that are explicitly committed to in the transcription.
-   - An action item MUST include clear commitment language such as:
-     "I will", "we will", "let’s do", "you take care of", "assigned to".
-   - Do NOT convert personal goals, wishes, resolutions, or ideas
-     into action items.
-   - Include responsible person and timeline ONLY if explicitly stated.
-   - If no explicit action items are present, write:
-     "No explicit action items mentioned."
+  Committee Members:
+    - [Name] (SPEAKER_X): [Role]
 
-Rules:
-- Base your response strictly on the provided transcription.
-- Do NOT invent, swap, or assume responsibilities.
-- Do NOT infer intent beyond what is explicitly stated.
-- If the transcription is partial, summarize only what is present.
-- Maintain clarity, accuracy, and professional tone.
+  Staff:
+    - [Name] (SPEAKER_X): [Role]
+
+________________________________________________________________________________
+
+SUMMARY (Key Discussion Points)
+
+  [Write 6-8 comprehensive sentences covering the ENTIRE meeting from start
+  to finish. Include: opening, main discussions, all decisions made, vote
+  outcomes, next steps, and closing. Be thorough and complete.]
+
+________________________________________________________________________________
+
+SPEAKER-WISE NOTES (Who Said What)
+
+  [Name] - [Role]
+    • [Contribution 1 - detailed]
+    • [Contribution 2 - include specifics]
+    • [Continue for ALL contributions]
+    • [Active speakers need 10-20 bullets minimum]
+
+  [Next Speaker] - [Role]
+    • [All contributions]
+
+________________________________________________________________________________
+
+DECISIONS TAKEN
+
+  D1. [Decision with vote count and outcome]
+  D2. [Next decision]
+  [ALL votes documented]
+
+________________________________________________________________________________
+
+ACTION ITEMS
+
+  [Task]
+    Owner: [Name]
+    Due Date: [Date]
+
+________________________________________________________________________________
+
+PURPOSE OF MEETING
+
+  [3-4 sentences explaining purpose and outcomes]
+
+================================================================================
+
+Regards,
+Generated by AngelBot.AI
+
+
+CRITICAL RULES:
+- Use • for bullets (NOT +, -, or *)
+- Start with ================ (no preamble)
+- Document EVERYTHING each speaker said
+- Include ALL votes with counts
+- Generate COMPLETE sections (don't stop early)
+- Priority: Completeness > Brevity
 """.strip()
 
 # =========================
-# REQUEST MODEL
+# SYNTHESIS PROMPT - EXTENDED FOR COMPLETENESS
+# =========================
+SYNTHESIS_SYSTEM_PROMPT = """
+You are Docutalk - synthesizing partial meeting analyses into ONE complete document.
+
+CRITICAL TASK: Combine all partial analyses into ONE comprehensive, complete
+Minutes of Meeting. Your output must be COMPLETE - do not stop mid-section.
+
+SYNTHESIS RULES:
+
+1. MERGE SPEAKER CONTRIBUTIONS
+   - Combine all bullets for each speaker
+   - Remove duplicates but keep all unique points
+   - Organize chronologically
+   - Result: Each active speaker should have 10-20+ bullets
+
+2. CONSOLIDATE DECISIONS
+   - List every vote taken
+   - Include vote counts
+   - Remove duplicates
+   - Keep chronological order
+
+3. COMBINE ACTION ITEMS
+   - Merge all action items
+   - Remove duplicates
+   - Keep all unique tasks
+
+4. CREATE COMPREHENSIVE SUMMARY
+   - Write 6-8 sentences covering ENTIRE meeting
+   - Include beginning, middle, and end
+   - Mention all major topics
+   - State outcomes and next steps
+
+5. ENSURE COMPLETENESS
+   - Generate ALL sections fully
+   - Don't stop mid-sentence or mid-section
+   - Complete the document properly
+   - End with footer
+
+OUTPUT FORMAT: Start with ================ and generate complete MoM document.
+
+PRIORITY: Generate the COMPLETE document. Don't truncate. Finish all sections
+properly including Purpose, footer, and "Regards" sign-off.
+
+BEGIN:
+""".strip()
+
+# =========================
+# REQUEST MODELS
 # =========================
 class SummarizeRequest(BaseModel):
     text: str
-    max_length: int = 600
+    max_length: int = 4000  # INCREASED for final synthesis
+    temperature: float = 0.01  # Ultra-low for consistency
+
+class TranslateRequest(BaseModel):
+    text: str
+    source_lang: str = "en"
+    target_lang: str = "hi"
+    max_length: int = 2000
     temperature: float = 0.2
-
-# =========================
-# CHUNKING LOGIC
-# =========================
-def chunk_text(text: str, max_tokens: int) -> list:
-    """
-    Rough chunking using char approximation (1 token ≈ 4 chars)
-    Sentence-aware to preserve meaning.
-    """
-    max_chars = max_tokens * 4
-    sentences = text.split(". ")
-
-    chunks = []
-    current_chunk = []
-    current_len = 0
-
-    for sentence in sentences:
-        sentence_len = len(sentence)
-        if current_len + sentence_len > max_chars:
-            if current_chunk:
-                chunks.append(". ".join(current_chunk) + ".")
-            current_chunk = [sentence]
-            current_len = sentence_len
-        else:
-            current_chunk.append(sentence)
-            current_len += sentence_len
-
-    if current_chunk:
-        chunks.append(". ".join(current_chunk) + ".")
-
-    return chunks
 
 # =========================
 # MODEL LOADING
@@ -316,16 +188,11 @@ async def load_model():
 
         if torch.cuda.is_available():
             logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-            logger.info(
-                f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
-            )
 
         model_path = "/app/Meta-Llama-3-8B-Instruct"
         logger.info(f"Loading model from: {model_path}")
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_path, local_files_only=True
-        )
+        tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
@@ -334,21 +201,21 @@ async def load_model():
         )
 
         logger.info(f"✓ Model loaded on {device}")
-        logger.info("🚀 Meeting Intelligence service ready")
+        logger.info("🚀 Optimized Chunking MoM service ready (v4.0)")
 
     except Exception as e:
         logger.error(f"Model load failed: {e}")
         raise
 
 # =========================
-# HEALTH ENDPOINTS
+# HEALTH
 # =========================
 @app.get("/")
 async def root():
     return {
         "service": "Llama 3 Meeting Intelligence",
-        "model": "Meta-Llama-3-8B-Instruct",
-        "endpoint": "/summarize",
+        "version": "4.0.0 - Optimized Chunking",
+        "max_synthesis_tokens": MAX_NEW_TOKENS_SYNTHESIS
     }
 
 @app.get("/health")
@@ -356,18 +223,51 @@ async def health():
     return {
         "status": "healthy" if model else "loading",
         "model_loaded": model is not None,
-        "gpu_available": torch.cuda.is_available(),
+        "gpu_available": torch.cuda.is_available()
     }
 
 # =========================
-# CORE GENERATION FUNCTION
+# SMART CHUNKING
 # =========================
-def generate_analysis_for_chunk(
-    chunk: str, max_length: int, temperature: float
+def chunk_transcript_smartly(transcript: str) -> list:
+    """Chunk at natural boundaries (speaker changes)"""
+    lines = transcript.split('\n')
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    
+    for line in lines:
+        line_length = len(line)
+        
+        # Check if adding line exceeds chunk size
+        if current_length + line_length > CHUNK_SIZE_CHARS and current_chunk:
+            chunks.append('\n'.join(current_chunk))
+            current_chunk = [line]
+            current_length = line_length
+        else:
+            current_chunk.append(line)
+            current_length += line_length + 1
+    
+    if current_chunk:
+        chunks.append('\n'.join(current_chunk))
+    
+    logger.info(f"[CHUNK] Created {len(chunks)} chunks")
+    return chunks
+
+# =========================
+# GENERATION WITH EXTENDED TOKEN LIMIT
+# =========================
+def generate_with_prompt(
+    system_prompt: str,
+    user_message: str,
+    max_length: int,
+    temperature: float,
+    is_synthesis: bool = False
 ) -> str:
+    """Generate with special handling for synthesis"""
     messages = [
-        {"role": "system", "content": MEETING_ANALYSIS_SYSTEM_PROMPT},
-        {"role": "user", "content": f"Audio Transcription:\n{chunk}"},
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
     ]
 
     prompt = tokenizer.apply_chat_template(
@@ -382,24 +282,25 @@ def generate_analysis_for_chunk(
     ).to(model.device)
 
     input_len = inputs.input_ids.shape[1]
+    
+    # Use higher token limit for synthesis
+    actual_max_length = max_length if not is_synthesis else MAX_NEW_TOKENS_SYNTHESIS
 
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
-            max_new_tokens=max_length,
-            temperature=temperature,
+            max_new_tokens=actual_max_length,
+            temperature=temperature if temperature > 0 else 0.01,
             do_sample=True,
-            top_p=0.9,
+            top_p=0.95,
+            repetition_penalty=1.1,  # Lower to allow completing thoughts
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
 
     generated_ids = outputs[0][input_len:]
-    result = tokenizer.decode(
-        generated_ids, skip_special_tokens=True
-    ).strip()
+    result = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
-    # Cleanup safety
     result = result.replace("<|eot_id|>", "").strip()
     if "assistant" in result.lower():
         result = result.split("assistant")[-1].strip()
@@ -407,7 +308,43 @@ def generate_analysis_for_chunk(
     return result
 
 # =========================
-# MAIN ENDPOINT
+# CLEANUP
+# =========================
+def clean_mom_output(text: str) -> str:
+    """Clean MoM output"""
+    
+    # Remove preambles
+    preambles = [
+        r'^here\s+is\s+the\s+(synthesized\s+)?minutes',
+        r'^here\s+is\s+the\s+mom',
+        r'^minutes\s+of\s+meeting[:\s]*\n',
+        r'^i\s+have\s+(generated|created)',
+        r'^based\s+on\s+(the\s+)?',
+    ]
+    
+    for pattern in preambles:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # Remove Markdown
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    
+    # Fix bullets
+    text = re.sub(r'^\s*\+\s+', '  • ', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*-\s+([^S])', r'  • \1', text, flags=re.MULTILINE)  # Keep - for names
+    
+    # Clean blank lines
+    text = re.sub(r'\n{4,}', '\n\n\n', text)
+    
+    # Ensure starts with separator
+    if not text.strip().startswith('==='):
+        text = '=' * 80 + '\n' + text
+    
+    return text.strip()
+
+# =========================
+# MAIN ENDPOINT WITH OPTIMIZED CHUNKING
 # =========================
 @app.post("/summarize")
 async def summarize(request: SummarizeRequest):
@@ -416,54 +353,167 @@ async def summarize(request: SummarizeRequest):
 
     try:
         text_len = len(request.text)
-        logger.info(f"Processing transcription ({text_len} chars)")
-
         estimated_tokens = text_len // 4
+        
+        logger.info(f"[MOM] Processing ({text_len} chars, ~{estimated_tokens} tokens)")
 
-        # ---- SHORT TRANSCRIPTION ----
-        if estimated_tokens < MAX_INPUT_TOKENS:
-            logger.info("Single-pass analysis")
-            analysis = generate_analysis_for_chunk(
-                request.text,
-                request.max_length,
+        # === SHORT MEETINGS: Single pass ===
+        if estimated_tokens < 3500:  # Lowered threshold
+            logger.info("[MOM] Single-pass generation")
+            
+            user_prompt = f"""Generate comprehensive Minutes of Meeting.
+
+CRITICAL:
+- Start with ================================================================================
+- NO preamble
+- Use • for bullets
+- Complete ALL sections
+- Don't stop early
+
+Transcription:
+
+{request.text}"""
+
+            analysis = generate_with_prompt(
+                MEETING_ANALYSIS_SYSTEM_PROMPT,
+                user_prompt,
+                3000,  # Generous for single pass
                 request.temperature,
+                is_synthesis=False
             )
+            
+            analysis = clean_mom_output(analysis)
 
-        # ---- LONG TRANSCRIPTION ----
+        # === LONG MEETINGS: Chunking + Synthesis ===
         else:
-            logger.info("Chunking long transcription")
-            chunks = chunk_text(request.text, MAX_INPUT_TOKENS)
-            logger.info(f"Total chunks: {len(chunks)}")
+            logger.info("[MOM] Chunking approach for long meeting")
+            
+            # Step 1: Chunk
+            chunks = chunk_transcript_smartly(request.text)
+            
+            # Step 2: Analyze each chunk
+            partial_analyses = []
+            
+            for i, chunk in enumerate(chunks):
+                logger.info(f"[MOM] Analyzing chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
+                
+                chunk_prompt = f"""Analyze this meeting transcript section.
 
-            chunk_results = []
-            for idx, chunk in enumerate(chunks):
-                logger.info(f"Analyzing chunk {idx + 1}/{len(chunks)}")
-                chunk_result = generate_analysis_for_chunk(
-                    chunk, max_length=400, temperature=request.temperature
-                )
-                chunk_results.append(chunk_result)
+Extract complete information:
+- All speaker contributions (every point made)
+- All decisions (with vote counts)
+- All action items (with owners and dates)
+- Discussion details
 
-            combined = "\n\n".join(chunk_results)
+Chunk {i+1}/{len(chunks)}:
 
-            # Final merge pass
-            if len(combined) > 2000:
-                logger.info("Final merge analysis")
-                analysis = generate_analysis_for_chunk(
-                    combined,
-                    request.max_length,
+{chunk}"""
+
+                partial = generate_with_prompt(
+                    MEETING_ANALYSIS_SYSTEM_PROMPT,
+                    chunk_prompt,
+                    MAX_NEW_TOKENS_PER_CHUNK,
                     request.temperature,
+                    is_synthesis=False
                 )
-            else:
-                analysis = combined
+                
+                partial_analyses.append(partial)
+                logger.info(f"[MOM] Chunk {i+1} done ({len(partial)} chars)")
+            
+            # Step 3: Synthesize with EXTENDED token limit
+            logger.info("[MOM] Synthesizing into complete MoM")
+            logger.info(f"[MOM] Using {MAX_NEW_TOKENS_SYNTHESIS} tokens for synthesis")
+            
+            combined = "\n\n=== CHUNK BOUNDARY ===\n\n".join(partial_analyses)
+            
+            synthesis_prompt = f"""Synthesize these {len(chunks)} partial analyses into ONE complete MoM.
+
+CRITICAL REQUIREMENTS:
+1. Start with ================================================================================
+2. Merge ALL speaker contributions (keep every bullet)
+3. Combine ALL decisions with vote counts
+4. List ALL action items
+5. Write complete summary (6-8 sentences covering entire meeting)
+6. FINISH the document completely (don't stop early)
+7. Include Purpose section
+8. Include footer with "Regards"
+
+Partial analyses:
+
+{combined}
+
+Generate COMPLETE Minutes of Meeting:"""
+
+            analysis = generate_with_prompt(
+                SYNTHESIS_SYSTEM_PROMPT,
+                synthesis_prompt,
+                MAX_NEW_TOKENS_SYNTHESIS,  # Use extended limit
+                request.temperature,
+                is_synthesis=True  # Flag for special handling
+            )
+            
+            analysis = clean_mom_output(analysis)
+            
+            # Validate synthesis completed
+            if not analysis.endswith("Regards,\nGenerated by AngelBot.AI"):
+                logger.warning("[MOM] Synthesis may be incomplete - missing footer")
+                # Append footer if missing
+                if "Regards" not in analysis[-200:]:
+                    analysis += "\n\n" + "=" * 80 + "\n\nRegards,\nGenerated by AngelBot.AI\n"
+        
+        logger.info(f"[MOM] ✓ Complete ({len(analysis)} chars)")
 
         return {
             "analysis": analysis,
             "original_length": text_len,
             "analysis_length": len(analysis),
-            "compression_ratio": f"{len(analysis) / text_len * 100:.1f}%",
+            "method": "single_pass" if estimated_tokens < 3500 else "chunking_synthesis",
+            "chunks_used": 1 if estimated_tokens < 3500 else len(chunks)
         }
 
     except Exception as e:
-        logger.error(f"Processing failed: {e}")
+        logger.error(f"[MOM] Failed: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
+# =========================
+# TRANSLATION
+# =========================
+@app.post("/translate")
+async def translate(request: TranslateRequest):
+    if not model or not tokenizer:
+        raise HTTPException(503, "Model not loaded")
+
+    try:
+        logger.info(f"[TRANSLATE] {request.source_lang} → {request.target_lang}")
+
+        instruction = f"Translate from {request.source_lang} to {request.target_lang}. Preserve timestamps and speaker labels. Output only translation."
+        
+        translated = generate_with_prompt(
+            "You are a translator. Output only the translation.",
+            f"{instruction}\n\n{request.text}",
+            request.max_length,
+            request.temperature,
+            is_synthesis=False
+        )
+
+        # Remove preambles
+        for phrase in ["here is", "translation:"]:
+            if translated.lower().startswith(phrase):
+                lines = translated.split('\n', 1)
+                if len(lines) > 1:
+                    translated = lines[1].strip()
+                break
+
+        logger.info(f"[TRANSLATE] ✓ Done ({len(translated)} chars)")
+
+        return {
+            "translated_text": translated,
+            "source_lang": request.source_lang,
+            "target_lang": request.target_lang
+        }
+
+    except Exception as e:
+        logger.error(f"[TRANSLATE] Failed: {e}")
+        raise HTTPException(500, str(e))

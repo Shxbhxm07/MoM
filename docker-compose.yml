@@ -123,7 +123,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8002
+      - VITE_API_URL=http://11.0.0.41:8002     #this is my og ip http://localhost:8002 
     restart: unless-stopped
     depends_on:
       backend:

@@ -165,28 +165,42 @@ async def transcribe_audio(
     language: Optional[str] = Form(None),
     beam_size: Optional[int] = Form(5),
     best_of: Optional[int] = Form(5),
+    word_timestamps: Optional[str] = Form('false'),
+    task: Optional[str] = Form('transcribe'),
+    temperature: Optional[float] = Form(0.0),  # ADD THIS
+    condition_on_previous_text: Optional[str] = Form('false'),  # ADD THIS
+    compression_ratio_threshold: Optional[float] = Form(2.4),  # ADD THIS
+    logprob_threshold: Optional[float] = Form(-1.0),  # ADD THIS
+    no_speech_threshold: Optional[float] = Form(0.6),  # ADD THIS
 ):
-    """Transcribe with optional optimization parameters"""
+    """Transcribe with your exact Whisper configuration"""
     if not models["whisper"]:
         raise HTTPException(status_code=503, detail="Whisper model not loaded")
     
     temp_file = None
     try:
-        # Save uploaded file
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
             content = await file.read()
             tmp.write(content)
             temp_file = tmp.name
 
-        logger.info(f"Transcribing: {file.filename} (beam_size={beam_size}, language={language})")
+        enable_word_timestamps = word_timestamps.lower() == 'true'
+        condition_prev = condition_on_previous_text.lower() == 'true'
 
-        # Prepare transcribe options
+        logger.info(f"Transcribing: {file.filename} (lang={language}, temp={temperature})")
+
+        # Prepare transcribe options with your settings
         transcribe_options = {
             "fp16": torch.cuda.is_available(),
-            "condition_on_previous_text": False,  # Faster for live/short segments
+            "word_timestamps": enable_word_timestamps,
+            "task": task,
+            "temperature": temperature,
+            "condition_on_previous_text": condition_prev,
+            "compression_ratio_threshold": compression_ratio_threshold,
+            "logprob_threshold": logprob_threshold,
+            "no_speech_threshold": no_speech_threshold,
         }
         
-        # Add optional parameters
         if language:
             transcribe_options["language"] = language
         if beam_size is not None:
@@ -214,7 +228,6 @@ async def transcribe_audio(
                 os.unlink(temp_file)
             except Exception as e:
                 logger.warning(f"Could not delete temp file: {e}")
-
 
 @app.post("/asr")
 async def asr(file: UploadFile = File(...)):
