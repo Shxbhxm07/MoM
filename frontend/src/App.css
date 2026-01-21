@@ -196,7 +196,7 @@ body.dark-mode .sidebar {
 
 /* Logo Image */
 .logo-image {
-  height: 52px;
+  height: 75px;
   width: auto;
   transition: all 0.3s ease;
 }
@@ -1229,7 +1229,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
   }
 
   .sidebar .logo-image {
-    height: 40px;
+    height: 75px;
   }
 
   .sidebar .nav-item {
@@ -1293,4 +1293,150 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 
 .latest-text-bubble {
   animation: fadeIn 0.3s ease-in;
+}
+
+/* ============================================================================
+   MoM DISPLAY STYLES - Clean format with single header
+   ============================================================================ */
+
+.mom-display {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mom-header-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mom-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mom-main-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+.mom-datetime {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* .mom-subject {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: var(--primary-light);
+  border-radius: 6px;
+  border-left: 3px solid var(--primary);
+} */
+
+.mom-divider {
+  height: 1px;
+  background: linear-gradient(to right, var(--primary), var(--border), var(--border));
+  margin: 8px 0;
+}
+
+.mom-content {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-main);
+}
+
+/* Annexure header in transcript box */
+.annexure-header {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border);
+}
+
+/* ============================================================================
+   END MoM DISPLAY STYLES
+   ============================================================================ */
+
+
+.btn-gradient {
+  background: linear-gradient(180deg, #002366 0%, #4A90E2 100%) !important;
+  border: none !important;
+  color: white !important;
+}
+
+.btn-gradient:hover:not(:disabled) {
+  background: linear-gradient(180deg, #001a4d 0%, #3a7bc8 100%) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 35, 102, 0.3);
+}
+
+.btn-gradient:active:not(:disabled) {
+  background: linear-gradient(180deg, #001433 0%, #2a5fa8 100%) !important;
+  transform: translateY(0);
+}
+
+/* ============================================ */
+/* STATUS PILLS - OFF-WHITE */
+/* ============================================ */
+
+.recording-pill {
+  background: rgba(245, 245, 245, 0.95) !important; /* Off-white */
+  color: #333 !important;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.recording-pill.on {
+  background: rgba(245, 245, 245, 0.95) !important;
+  color: #d32f2f !important; /* Red text for recording */
+}
+
+.recording-pill.off {
+  background: rgba(245, 245, 245, 0.95) !important;
+  color: #666 !important;
+}
+
+.transcript-status,
+.summary-status {
+  background: rgba(245, 245, 245, 0.95) !important; /* Off-white */
+  color: #333 !important;
+  padding: 6px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.processing-pill {
+  background: rgba(245, 245, 245, 0.95) !important;
+  color: #666 !important;
+  padding: 6px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
