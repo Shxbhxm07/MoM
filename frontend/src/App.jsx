@@ -2819,7 +2819,9 @@ function LiveSession({ status, onStart, onStop, onReset, onDiarize, onSummarize,
 
       <section className="card transcript-card">
         <div className="transcript-header">
-          <h2 className="section-title">Diarized Transcript</h2>
+          <h2 className="section-title">
+            {transcript.includes('SPEAKER_') ? 'Diarized Transcript' : 'Live Transcript'}
+          </h2>
           {is_recording && (
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               ⚡ ~2s latency | 🌐 Multi-language
@@ -2835,7 +2837,21 @@ function LiveSession({ status, onStart, onStop, onReset, onDiarize, onSummarize,
         <div className="transcript-box" style={{ maxHeight: '500px', overflowY: 'auto' }}>
           {transcript ? (
             <>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'Noto Sans Devanagari, Arial Unicode MS, sans-serif' }}>{transcript}</pre>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'Noto Sans Devanagari, Arial Unicode MS, sans-serif' }}>
+                {transcript}
+              </pre>
+              {!transcript.includes('SPEAKER_') && !is_recording && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '8px 12px',
+                  background: 'var(--primary-light)',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  color: 'var(--text-muted)'
+                }}>
+                  💡 Click <strong>👥 Diarize</strong> to identify speakers
+                </div>
+              )}
               <div ref={transcriptEndRef} />
             </>
           ) : (
